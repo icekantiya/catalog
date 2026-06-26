@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Catalog สินค้า</title>
+  <script src="https://static.line-scdn.net/liff/edge/versions/2.22.3/sdk.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; background: #f5f5f5; }
+
+    .header {
+      background: #06C755;
+      color: white;
+      padding: 16px;
+      text-align: center;
+      font-size: 18px;
+      font-weight: bold;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .products {
+      padding: 12px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .product-card {
+      background: white;
+      border-radius: 12px;
+      padding: 12px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    }
+
+    .product-name { font-size: 14px; font-weight: bold; margin-bottom: 4px; }
+    .product-price { font-size: 16px; color: #06C755; font-weight: bold; }
+    .product-unit { font-size: 12px; color: #888; margin-bottom: 8px; }
+
+    .qty-control {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .qty-btn {
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      border: 1.5px solid #ddd;
+      background: white;
+      font-size: 16px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .qty-btn:active { background: #f0f0f0; }
+    .qty-num { font-size: 15px; font-weight: bold; min-width: 20px; text-align: center; }
+
+    .cart-bar {
+      position: sticky;
+      bottom: 0;
+      background: white;
+      border-top: 1px solid #eee;
+      padding: 12px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .cart-info { font-size: 14px; color: #333; }
+    .cart-total { font-size: 16px; font-weight: bold; color: #06C755; }
+
+    .order-btn {
+      background: #06C755;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 24px;
+      font-size: 15px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    .order-btn:disabled { background: #ccc; }
+
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #888;
+    }
+  </style>
+</head>
+<body>
+
+<div class="header" id="shop-name">กำลังโหลด...</div>
+
+<div id="product-list" class="products">
+  <div class="loading">กำลังโหลดสินค้า...</div>
+</div>
+
+<div class="cart-bar">
+  <div>
+    <div class="cart-info" id="cart-count">ยังไม่ได้เลือกสินค้า</div>
+    <div class="cart-total" id="cart-total"></div>
+  </div>
+  <button class="order-btn" id="order-btn" onclick="submitOrder()" disabled>
+    สั่งซื้อ
+  </button>
+</div>
+
+<script>
+// ==============================
+// ตั้งค่าตรงนี้เลย
+// ==============================
+const LIFF_ID        = "2010526291-F2NwBVpb";
+const SCRIPT_URL     = "วาง Apps Script URL ตรงนี้ทีหลัง";
+const SHOP_NAME      = "ร้านของฉัน";
+// ==============================
+
+let cart = {};
+let products = [];
+let userName = "";
+let userId = "";
+
+async function init() {
+  document.getElementById("shop-name").textContent = SHOP_NAME;
+
+  await liff.init({ liffId: LIFF_ID });
+
+  if (liff.isLoggedIn()) {
+    const profile = await liff.getProfile();
+    userName = profile.displayName;
+    userId   = profile.userId;
+  }
+
+  loadProducts();
+}
+
+async function loadProducts() {
+  try {
+    const res  = await fetch(SCRIPT_URL + "?action=getProducts");
+    products   = await res.json();
+    renderProducts();
+  } catch(e) {
+    document.getElementById("product-list").innerHTML =
+      '<div class="loading">โหลดสินค้าไม่ได้ กรุณาลองใหม่</div>';
+  }
+}
+
+function renderProducts() {
+  const html = products.map((p, i) => `
+    <div class="product-card">
+      <div class="product-name">${p.name}</div>
+      <div class="product-unit">${p.unit}</div>
+      <div class="product-price">฿${p.price}</div>
+      <div class="qty-control">
+        <button class="qty-btn" onclick="changeQty(${i}, -1)">−</button>
+        <span class="qty-num" id="qty-${i}">0</span>
+        <button class="qty-btn" onclick="changeQty(${i}, +1)">+</button>
+      </div>
+    </div>
+  `).join('');
+  document.getElementById("product-list").innerHTML = html;
+}
+
+function changeQty(index, delta) {
+  const current = cart[index] || 0;
+  const next    = Math.max(0, current + delta);
+  if (next === 0) delete cart[index];
+  else cart[index] = next;
+  document.getElementById("qty-" + index).textContent = next;
+  updateCartBar();
+}
+
+function updateCartBar() {
+  const items = Object.keys(cart);
+  if (items.length === 0) {
+    document.getElementById("cart-count").textContent = "ยังไม่ได้เลือกสินค้า";
+    document.getElementById("cart-total").textContent = "";
+    document.getElementById("order-btn").disabled = true;
+    return;
+  }
+  const totalQty   = items.reduce((s, i) => s + cart[i], 0);
+  const totalPrice = items.reduce((s, i) => s + cart[i] * products[i].price, 0);
+  document.getElementById("cart-count").textContent = `${totalQty} รายการ`;
+  document.getElementById("cart-total").textContent = `฿${totalPrice.toLocaleString()}`;
+  document.getElementById("order-btn").disabled = false;
+}
+
+async function submitOrder() {
+  document.getElementById("order-btn").disabled = true;
+  document.getElementById("order-btn").textContent = "กำลังส่ง...";
+
+  const items = Object.keys(cart).map(i => ({
+    name:  products[i].name,
+    unit:  products[i].unit,
+    qty:   cart[i],
+    price: products[i].price
+  }));
+
+  await fetch(SCRIPT_URL, {
+    method: "POST",
+    body: JSON.stringify({ userName, userId, items })
+  });
+
+  // ปิดหน้าต่าง กลับไป LINE
+  liff.closeWindow();
+}
+
+init();
+</script>
+</body>
+</html>
